@@ -61,6 +61,12 @@
       {"name": "lxml", "version": "6.0.2", "strength": "observed"},
       {"name": "mitmproxy", "version": "12.2.3", "strength": "observed", "notes": "the library version"}
     ],
+    "dex_indexers": [
+      {"name": "dexsql", "version": "0.1.0", "probe": "dexsql --version", "strength": "observed", "used_by": "the SQL query layer over dex and APK resources; registered as the dex_query_sql capability", "notes": "Windows amd64 release asset, 21,365,760 bytes, sha256 f354ebcf715de9a66ef8ebe08b2b36807ab58e25cd5a1c0812e497fc1fcfc448, downloaded from the project's release host (no build step). Class-definition sets were compared against the three indexers below on four archives (1,396 / 647 / 4 / 30,768 classes): identical on all four, zero differences in either direction. Full measurements, recipes and boundaries: references/dexsql-sql-query-layer.md."},
+      {"name": "rasc (Rust ASC)", "version": "0.1.0", "probe": "rasc --version", "strength": "observed", "notes": "built from source by scripts/rasc_build.py; the class-set comparison quoted above is the same one rasc_build.py --verify performs between rasc and droidasc"},
+      {"name": "droidasc (Python ASC)", "version": "0.1.1.post1", "probe": "python -c \"import importlib.metadata as m; print(m.version('droidasc'))\"", "strength": "observed"},
+      {"name": "ddc", "version": "0.1.8", "probe": "ddc -V", "strength": "observed", "notes": "single Rust binary, not on PATH here; the measured calls pass it by explicit path"}
+    ],
     "proxy": [
       {"name": "mitmdump (standalone binary in the local tools directory)", "version": "11.1.2 binary, bundling Python 3.13.1 and OpenSSL 3.4.0", "probe": "<binary> --version", "strength": "observed", "notes": "This is NOT the same version as the mitmproxy library above. A local workbench note recorded 12.2.3 against this binary's path; the binary reports 11.1.2. If a captured-flow shape matters, read the version from the binary you actually invoke."}
     ],
@@ -98,6 +104,7 @@
     "Kernel side: no kernel module was compiled or loaded at any version, on any kernel. The generator was exercised; the artefact was not.",
     "Gradle and the Android NDK: never used, at any version.",
     "Dart: the string-table formats were checked on two ABIs of one build (a Dart 3.6.0 snapshot), through a front end this skill does not ship.",
-    "Mitmproxy: the library and the standalone binary measured different versions (12.2.3 and 11.1.2); no capture in the record is tied to a mitmproxy release."
+    "Mitmproxy: the library and the standalone binary measured different versions (12.2.3 and 11.1.2); no capture in the record is tied to a mitmproxy release.",
+    "dexsql: only 0.1.0 on Windows amd64 was measured. The same release publishes Linux and macOS assets, and none of them was exercised; no other dexsql version was tested at all. The MCP surface was exercised to a tool listing, not from a real client session."
   ]
 }

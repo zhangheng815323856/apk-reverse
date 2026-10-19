@@ -88,3 +88,27 @@ def test_the_fallback_constant_is_the_calibrated_one(budget):
     assert abs(budget.TOKENS_PER_CHAR - expected) < 0.25, (
         "TOKENS_PER_CHAR is %.3f but this SKILL.md measures %.3f characters per token -- the "
         "document changed, so recalibrate" % (budget.TOKENS_PER_CHAR, expected))
+
+
+def test_an_index_row_past_the_hard_limit_fails_rather_than_warns(budget):
+    """The hard index-row limit must escalate, or the limit it names is decorative.
+
+    It read `'warn' if hard else 'warn'` -- both branches identical -- so `INDEX_ROW_HARD` was
+    defined, computed, and unable to fail anything: an index row could grow without bound while
+    every gate stayed green. That is the same failure mode this file exists for, one level up: the
+    measurement happened and the verdict did not follow. It was found by injecting an over-long row
+    and requiring the gate to fail, which is the only way a dead limit shows itself -- a gate that
+    has only ever been seen passing is not evidence that it can see anything.
+    """
+    def levels(desc_len):
+        lines = [
+            "## Symptom index",
+            "| What you observe | Load first |",
+            "| a row | %s |" % ("y" * desc_len),
+        ]
+        return {level for level, _ in budget.check_index_rows(lines)}
+
+    assert levels(budget.INDEX_ROW_SOFT + 10) == {"warn"}
+    assert levels(budget.INDEX_ROW_HARD + 10) == {"fail"}, (
+        "a row past INDEX_ROW_HARD (%d chars) must fail the gate, not warn about it"
+        % budget.INDEX_ROW_HARD)

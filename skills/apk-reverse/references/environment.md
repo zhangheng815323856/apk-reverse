@@ -47,6 +47,27 @@ See `scripts/devsh.py`.
 
 Same class of bug: `javac` reads sources using the platform default encoding. Pass `-encoding UTF-8` or non-ASCII comments break the build.
 
+### Three path namespaces, and none of them convert automatically
+
+A path in this skill lives in exactly one of three places, and the same string means something
+different in each:
+
+| Namespace | Looks like | Who accepts it |
+|---|---|---|
+| **host** filesystem | `C:\work\app.apk`, `<home>/work/app.apk` | your python scripts, `aapt2`, `apksigner` |
+| **device** filesystem | `/data/local/tmp/x`, `/sdcard/` | `adb shell`, `su -c`, `devsh.py` |
+| **APK entry name** | `classes.dex`, `res/layout/main.xml` | `repack.py`, `so_constpatch.py`, `zipfile` |
+
+Two properties matter. A host path **does not exist** on the device and vice versa — `adb push` and
+`adb pull` take one of each, which is the only place a translation happens, and it is yours to make.
+And an entry name is always `/`-separated and case-sensitive regardless of the host OS: a script that
+builds one with `os.path.join` produces backslashes on Windows and matches nothing.
+
+The symptom of a crossed boundary is a "no such file" naming a path you can see exists — on the other
+side of it. When that appears, check which namespace the string is in before checking whether the file
+is there. `device_shell.py`'s `validate_device_path` exists to refuse a host-shaped path before it
+reaches the device shell, where it would otherwise fail far from the caller.
+
 ## Giving an offline device network over USB
 
 Use when the device has no usable network (broken Wi-Fi, no SIM, restricted network) but your host does. **`adb reverse` runs on the device's loopback, so it needs no device-side network interface at all.**

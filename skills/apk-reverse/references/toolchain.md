@@ -35,6 +35,7 @@ cross-check with the program headers.
 | **`rasc`** (Rust ASC) | `rasc findrefs app.apk string <S>` | **the same index, 4–15× faster**, no Python runtime, a Rust DEX decompiler behind `getclass`. Reach for this FIRST when it is built — its one blind spot is documented in `rasc-and-droidsaw.md` |
 | **`droidasc`** (ASC) | `droidasc findrefs app.apk string <S>` | the original Python index, one `pip install` away, and the cross-check for `rasc`. Reach for it FIRST when `rasc` is not built |
 | **`ddc`** | `ddc app.apk -c <Class>` | **fastest read of dex as Java, plus query subcommands** — reach for this SECOND, to *read*. See below |
+| **`dexsql`** | `dexsql query --input app.apk --sql "…"` | **the whole dex as SQL tables** (callers, field accesses, numeric constants, debug lines, annotations) plus manifest and `resources.arsc` queries and an MCP server. Reach for it when the question is a **join or an aggregate** rather than a class list — see below |
 | `apktool` | `java -jar apktool.jar d/b` | whole-app decode including resources |
 | `jadx` | `jadx --no-res -d <out> <apk>` | readable Java for orientation; **not** a source of truth, and **not** a recon entry point (see below) |
 | `aapt2` | `aapt2 dump badging <apk>` | manifest facts, package name, versions |
@@ -213,6 +214,48 @@ matters: a full `ddc <apk> -o out/` export is a reasonable thing to *have*, but 
 not a substitute for one indexed query, and it is the slower of the two by a wide margin on any APK
 worth analyzing.
 
+### dexsql — the whole dex as SQL, and the resources beside it
+
+A third indexer at the same stage as ASC, and the one to reach for when the question is a **join or an
+aggregate** rather than a class list. One self-contained binary (v0.1.0, 21.4 MB on Windows amd64, no
+Python, no JVM, no index build), acquired as a release download from
+`https://github.com/LSPosed/dexsql-release/releases`:
+
+```bash
+dexsql tables  --input app.apk                       # every table and its column types
+dexsql query   --input app.apk --sql "SELECT count(*) AS n FROM methods"
+dexsql query   --input app.apk --sql "…" --sql "…"   # several statements, one loaded dataset
+dexsql query   --input app.apk --interactive         # keep it loaded, read SQL from stdin
+dexsql decode  --input app.apk --class 'Lcom/x/Y;'   # smali, not Java
+dexsql prepare-cache --input app.apk --output cache  # then: query-cache --cache-file cache/cache.dxc2
+dexsql mcp                                           # MCP server over stdio
+```
+
+**What it is for.** `method_calls` (caller → callee), `method_field_accesses`, `method_strings`,
+`method_used_types` and `method_numbers` are pre-joined views carrying the calling method's class and
+name — so "which methods call `X`", "which methods hold a numeric constant above N", "what does the
+debug line table say", "which owners carry this annotation" are single queries instead of greps.
+`hiddenapi_flags` and the annotation tables have no equivalent in the other two indexers.
+
+**Where it sits against the other two, measured on four archives (identical class-definition sets on
+all four, zero differences either way):** on a 34.8 MB / 30,768-class app a full class listing takes
+`dexsql` **0.136 s** against `droidasc` 0.200 s and `rasc` 0.055 s — 1.5× faster than the Python
+indexer, 2.5× slower than the Rust one. **So it does not replace `rasc` for a class list**; it answers
+questions `rasc` cannot express. Its string cross-reference was checked against ASC's on a real
+archive and agrees site for site.
+
+**Two traps.** `decode` emits **smali**, not Java — when the question is Java-level, `ddc getclass`
+still owns it. And SQL's `=` is not `findrefs`: ASC matches a *substring*, so `WHERE value = 'http'`
+legitimately returns nothing where `findrefs string http` returns three sites; use `LIKE '%…%'`.
+
+**The persistent cache is not a speed switch.** `prepare-cache` on the 34.8 MB archive writes a
+34.5 MB `cache.dxc2` in 0.196 s, and repeating a full-dataset query against it moved 0.121 s → 0.098 s
+— **under 20%**, because parse-and-build is already 0.12 s there. It is a way to hold one dataset
+across many queries in a long session; on a small archive it is a net loss.
+
+Full table inventory, recipes, the MCP tool list and the boundaries:
+`references/dexsql-sql-query-layer.md`.
+
 **Classpath gotcha.** `baksmali`/`smali` need their dependency jars on the classpath together
 (`smali`, `antlr-runtime`, `stringtemplate`, `baksmali`, `dexlib2`, `util`, `jcommander`, `guava`).
 Missing one produces `ClassNotFoundException` that reads like a broken target. `scripts/smtool.py`
@@ -226,6 +269,29 @@ is a version mismatch, not a missing jar.
 line numbers and even which branch is which can differ from the bytecode. When a decision depends on
 it, verify in smali or at runtime. `jadx` writing `(unknown)`/empty method bodies means it failed,
 not that the method is empty.
+
+### A tool that ran out of room did not tell you the target is empty
+
+Every JVM-based reader in this list, and several of the native ones, can die on a large or deeply
+nested input without saying anything about the artifact: `OutOfMemoryError`, a `Killed` from the OOM
+killer, a container limit, or a timeout. The output looks like a tool that read the file and found
+nothing — an empty result plus a line most people skim past.
+
+**What a failed analysis supports is a claim about the analysis, not the artifact**: "this route could
+not complete on this input" is `present but unreadable` (`SKILL.md` §Coverage), and it is exactly
+where a wrong "that class is not in there" gets written into a record. Three things to do before a
+negative from a heavy tool becomes a finding:
+
+- read the **exit code and stderr**, not just stdout — a heap death often exits non-zero with a
+  partial result already printed;
+- give the tool the room the input warrants (a larger heap for the JVM readers) and re-run before
+  concluding anything;
+- prefer a route that does not have to materialise everything: an indexed query against the APK
+  (`rasc`/`droidasc`/`dexsql`) answers most location questions without decompiling a single class, and
+  it is also the route that survives a target too large for a full export.
+
+The same reading applies to a **time budget** you set yourself: a command you killed at your own
+deadline reported nothing about the target, only about your deadline.
 
 **`smali` assembling can abort silently** — the tree produces no dex while the process still exits
 0. Never treat exit code as proof of a build. Assert the artifact exists, is fresh, and is non-empty

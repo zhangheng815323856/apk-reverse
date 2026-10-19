@@ -196,7 +196,11 @@ def check_index_rows(lines):
     out = []
     for section, key, size in long_rows:
         hard = size > INDEX_ROW_HARD
-        out.append(('warn' if hard else 'warn',
+        # `hard` must actually escalate. This read `'warn' if hard else 'warn'` -- both branches the
+        # same -- so INDEX_ROW_HARD was defined, computed and never able to fail anything: an index
+        # row could grow without limit and CI stayed green. Found by injecting an over-long row and
+        # asking the gate to fail, which is the only way this class of defect shows up.
+        out.append(('fail' if hard else 'warn',
                     '%s: row for %s is %d chars (soft limit %d)%s' %
                     (section, key, size, INDEX_ROW_SOFT,
                      ' -- that is a paragraph, not an index entry' if hard else '')))

@@ -15,6 +15,8 @@ take. Silence in this list is not support for a route; it means nobody here paid
 - **inferred** — follows from a documented mechanism or a neighbouring measurement; the step itself
   was not executed.
 - **unverified** — assumed, or reported by someone else, and not reproduced in this record.
+- **unknown** — nothing here covers it: not probed, or probed without the coverage to answer. Missing
+  evidence, not a negative result.
 
 A row whose strength is `unverified` is a statement about *this skill's evidence*, not about the
 mechanism's truth. It means nobody has yet put a command and its output behind it here.
@@ -36,6 +38,24 @@ mechanism's truth. It means nobody has yet put a command and its output behind i
 - **The runtime routes need a real device.** Hooking, dumping, install-then-launch verification and
   the module route all require a rooted device; several of them additionally require a framework the
   device must have active.
+- **The hardware layer is a host-verified toolkit, not a device-verified one.** The watchpoint
+  encoders and the emitted helper's build (static aarch64, cross gcc) are measured, the differential
+  reducer is fixture-tested, the ELF symbolizer is verified against a real cross-compiled `.so`, and
+  the kernel templates generate and verify — but **no watchpoint was armed, no ETE/SPE trace
+  captured, no BRBE record read, and no kernel file compiled or loaded on any device by this
+  repository**. Every device-side step carries its control procedure in the reference file, and a
+  control that has not run means the result is `unverified`, not working-as-intended.
+- **The public xvmp tree ships the compiler half only; this skill supplied the missing runtime.**
+  Upstream never compiled its virtualizer headers (no TU includes them; on dev trees they do not
+  build), and the `vm_exec` interpreter was never committed. The completed implementation — pass
+  wiring (`-mllvm -irobf-irvm`, section `.irvm`; strictly flag-gated), FORMAT v3 bytecode
+  (explicit widths, stable CC_ cast kinds, per-index GEP scales), a strong-symbol `vm_exec`
+  interpreter, VMP.h user header and a 23-check unit suite — is merged into all four `omp`
+  branches of that tree and verified end-to-end: virtualized vs native output identical at
+  -O0/-O1/-O2 on every branch. (One branch also carried an ungated IRVM call in
+  `Obfuscation::runOnModule` that rewrote `.irvm` functions in plain native builds; removed, so
+  IRVM runs only behind `-mllvm -irobf-irvm`.) Read stderr for `[irvm] skip` lines before
+  assuming a function was virtualized.
 - **The evidence record and the benchmark matrix do not ship.** Their paths appear in older
   documents as if they were openable files. They resolve only in the repository they were written in.
 

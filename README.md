@@ -57,6 +57,18 @@ And one thing at the end that is meant to be *withheld*: **"done"** has a defini
 clean log is not one of them. Anything short of all six is a checkpoint, and should be reported as a
 checkpoint with what remains.
 
+**What the split costs is not measured, and the claim should not be overstated.** `SKILL.md` loads in
+full; a reference loads when the symptom index or the routing table
+(`skills/apk-reverse/references/routing.md`) sends you to one. That is
+usually described as "cheaper context", and only half of it has been measured here: the always-loaded
+body has a measured size and a gate that fails when it grows (`check_budget.py`). The other half has
+not — how many references a real question pulls in, and whether fetching them one at a time ends up
+costing more than the alternative would have. A question that needs four references is not obviously
+cheaper than one longer file would have been, and every reference also carries its own entry in the
+index that has to be read to find it. Treat the split's economy as `unknown` -- nothing here has
+measured it -- and treat the body budget as `observed`. The second is the one that compounds on every
+task, which is why it is the one gated.
+
 If you are an agent reading this: the cheapest possible first command is
 `python skills/apk-reverse/scripts/doctor.py`. It tells you which of these tools exist here, which
 scripts can actually run, and whether something in the environment is already poisoning your
@@ -108,6 +120,10 @@ measurements.
   execution on the host, or a live function service-ified over Frida RPC.
 - Reading **instruction-level execution evidence** when a native function has been flattened into a
   state machine by OLLVM — including the two ways Stalker was measured to bite back on a real device.
+- Reaching for the **hardware layer** when every software tracer modifies what it observes: arm64
+  hardware watchpoints (no code change, but an honest `TracerPid` ledger), ETE/TRBE differential
+  tracing with its five gates, and kernel-armed injection templates that are labelled unverified
+  until a device with the matching gate fires them.
 - Recognising when **userspace hooking cannot reach the check at all** (raw `svc` syscalls,
   `init_array`-early detection), what the next layer up and down can actually do, and when escalating
   is the wrong answer.
@@ -269,6 +285,31 @@ references/               loaded on demand, one topic each
                               userspace hooking provably cannot reach the check: raw `svc`, init_array-early
                               detection, what each root scheme hides, the kernel-route map with its version
                               gate, and when to stop escalating
+  hardware-watchpoints.md     invisible memory watchpoints on arm64: the hardware debug slots, the
+                              ptrace route with its honest `TracerPid` ledger, the 8-byte-window
+                              alignment rules, the traps (per-thread slots, signal forwarding, the
+                              breakpoint step-over dance), and the control run every hit is owed
+  ete-diff-tracing.md         hardware execution tracing (CoreSight ETE/TRBE) plus the differential
+                              method: the five gates and how each fails silently, per-thread `cs_etm`
+                              capture, and two one-bit-different runs turned into the input-dependent
+                              block set — with the two open flattening families' state machines
+                              read from source, and the xvmp IR-VM shape
+  hardware-sampling-and-crash.md
+                              data flow without a known address (SPE: PC + data address per
+                              sample), crash forensics when the stack is not trustworthy (BRBE
+                              branch records / the ETE tail), and runtime addresses turned into
+                              symbols and static offsets (`trace_addr2sym.py`, PIE vaddr/file-offset
+                              rules)
+  native-vm-recovery.md       recovering a native VM: existence signals, the behavioural table
+                              that separates stacked CFF/VM dispatchers, relocation-recovered
+                              dispatch tables, register anchoring with triple verification,
+                              nested-VM segment stacks, STORE-backward operand slicing with byte
+                              provenance, and the clean-re-VM validation loop — absorbed from two
+                              public write-ups
+  kernel-event-injection.md   the driver as your hands inside the target: watchpoints armed from the
+                              kernel with no tracer relationship, register rewrites at the trap, the
+                              primitive map per route (KPM/LKM/eBPF/Zygisk), and the composition
+                              recipes that stack this layer with the other two
   on-device-tooling.md        working from the phone itself: MT Manager edit/repack/sign and its APK MCP,
                               LSPosed Manager, Termux+frida, on-device data inspection
   java2c-and-jni-sinking.md   Java2C and JNI sinking, the two hardening shapes most easily confused
@@ -392,6 +433,32 @@ scripts/                  parameterized, path-agnostic
   kernelsu_syscall_mask.py    generate a KernelSU/APatch syscall-masking scaffold: an installable
                               userspace module skeleton plus KPM/LKM/eBPF kernel-side templates, each
                               with its version gate and an explicit unverified label
+  hw_watch.py                 invisible memory watchpoints / execution breakpoints on arm64: plan
+                              (WCR/BCR encoders with the 8-byte-window rules), emit (a self-contained
+                              on-device C helper — compiles clean as a static aarch64 ELF), gates,
+                              run (build+push+stream hits) and decode (module+offset per hit)
+  trace_diff.py               differential trace reduction: reduce one trace to runs+histogram, or
+                              diff two traces into first-divergence / divergent regions / blocks
+                              unique to each side — producer-agnostic (Stalker logs or any
+                              address-per-line stream, incl. decoded cs_etm)
+  ete_capture.py              CoreSight ETE capture with gates first: the five gates (kernel era,
+                              coresight sysfs, cs_etm PMU, perf-with-CORESIGHT, permission), the
+                              perf/OpenCSD build recipe, and the per-thread record wrapper whose
+                              `--control` validation run must pass before any real capture
+  kernel_instrument_scaffold.py
+                              generate the kernel-side instrumentation scaffold: KPM/LKM watchpoint +
+                              register-rewrite templates and an honest userspace carrier, each with
+                              its gate and a `NOT COMPILED AND NOT LOADED` banner that `verify`
+                              enforces
+  trace_addr2sym.py           runtime addresses -> symbols + static offsets, zero-dependency
+                              ELF64 (PT_LOAD vaddr/file-off conversion, .dynsym/.symtab, stripped
+                              fallback): accepts hw_watch hits, trace mod+off keys or raw address
+                              lists; host-verified against a real cross-compiled aarch64 .so
+  vm_handler_slice.py         de-virtualize an interpreter trace: dispatcher detection, slicing
+                              into handler segments at dispatch entries, signature clustering, and
+                              the guest-opcode trajectory via an optional handler->opcode map —
+                              calibrated against the open xvmp IR virtualizer, with a nested-loop
+                              diagnostic for VMs called from VM code
   rasc_build.py               build and verify rasc, the Rust ASC re-implementation:
                               --check what is present, --build clone plus cargo, --verify an APK
                               against droidasc and fail on any class-set difference
@@ -450,14 +517,22 @@ set APKREV_TOOLS=<dir>;<dir>                     # Windows, e.g. an SDK or proje
 export APKREV_TOOLS=<dir>:<dir>                  # POSIX
 ```
 
-The scripts themselves are plain `python3` and are intended to work identically on Windows, macOS and
+The scripts themselves are plain `python3` and are designed to work identically on Windows, macOS and
 Linux; where a snippet is POSIX-only it is labelled. Nothing here assumes a Unix shell.
+
+**Measured on Windows only.** Every gate run, every test result and every figure in the evidence
+record comes from one host (Windows 10.0.26100, PowerShell 7, CPython 3.14). Cross-platform behaviour
+is a design intention, not an observation: treat another platform as `unverified` until the suite has
+been run there, and expect the usual suspects to be the difference — path separators, `os.pathsep` in
+`APKREV_TOOLS`, console encodings, and shell quoting in the ADB helpers. If you run the gates on
+macOS or Linux and they pass, that is a `observed` result worth recording next to this paragraph.
 
 | Tool | Used for |
 |---|---|
 | Python 3.9+ | all scripts |
 | **`droidasc`** (ASC) (**optional but strongly recommended — install this first**) | whole-APK cross-reference index: `findrefs` / `listclass` / `getclass` / `getmanifest`. One `pip install droidasc`, no JVM, no SDK, no index build. Turns "which of N thousand classes mentions this string" into a sub-second query, and it is the only route to a class whose name R8 mangled. **This is the tool an agent should reach for before any full decompile** — see `skills/apk-reverse/references/toolchain.md` §droidasc (ASC) — ask an APK "who references this?", in one query |
 | `ddc` (optional but strongly recommended) | single-binary dex→Java decompiler with query subcommands (`info`, `findrefs`, `strings --with-locations`, per-class decompile). No JVM. **Reads** what ASC **locates**; also reports package identity reliably — see `skills/apk-reverse/references/toolchain.md` §ddc — dex-to-Java with query subcommands (worth adopting) |
+| **`dexsql`** (optional but strongly recommended) | single-binary **SQL over the whole dex**, plus the APK manifest and `resources.arsc`, plus an MCP server. Its class-definition set matched `rasc`/`droidasc`/`ddc` exactly on four archives, and it answers what the other two cannot express: callers of a callee, field accesses, numeric constants, debug lines, annotations, hiddenapi flags. Reach for it when the question is a **join or an aggregate** — see `skills/apk-reverse/references/dexsql-sql-query-layer.md` |
 | `baksmali` / `smali` + `dexlib2` jars | disassembly, assembly, surgical patching |
 | JDK (`javac`, `java`) | building/running the dexlib2 patcher; also provides `keytool`/`jarsigner` |
 | Android SDK build-tools (`aapt`, `zipalign`, `apksigner`) | manifest info, alignment, signing. **`apksigner` is the signer to use** — `jarsigner` rewrites the archive and breaks the alignment Android R+ requires |
@@ -512,7 +587,11 @@ targets under those routes (`tests/benchmark.md`): it added **Java2C discriminat
 misdiagnosis that sends an agent hunting a decrypted DEX that never exists), **split APK /
 App Bundle handling**, **schema-free protobuf decoding**, a **Dex-VMP differential** harness,
 and **kernel-module templates with their version gates** — and it corrected two earlier claims
-whose measurements disagreed with them. Unity/IL2CPP logic recovery,
+whose measurements disagreed with them. A **hardware pass** then added the layer under the
+software tooling: **hardware watchpoints** with their honest `TracerPid` ledger, **ETE/TRBE
+differential tracing** with its five gates, and **kernel-side injection templates** — every
+host-checkable piece measured, every device-bound piece labelled `unverified` until a gate
+opens. Unity/IL2CPP logic recovery,
 React Native/Hermes bytecode internals, and defeating a server-side authority are **not**
 covered, and the skill is written to say so and stop rather than apply the nearest
 documented procedure to a target it was not written for.
@@ -537,6 +616,11 @@ Four qualifications that the Coverage section states in full and that belong her
   `unverified` are statements about the evidence in this repository, not about the mechanism.
 
 ## Repository maintenance
+
+**Changing something here? Start with [CONTRIBUTING.md](CONTRIBUTING.md).** It lists the gates, what a
+green run does and does not establish, the sync rules a change has to keep (a new reference must be
+named in the inventory, renaming a heading breaks every section reference that pointed at it), and the
+two failure modes to watch for when editing the gates themselves.
 
 Four tools live at the root and are not part of the installed skill:
 
@@ -565,6 +649,41 @@ build_scripts.py   audit for machine-specific leftovers (absolute paths, credent
 Consistency has a natural counter-pressure -- a broken path fails loudly, and someone fixes it.
 Bloat has none, which is why the third tool exists: every pass adds a reference, an index row and
 a coverage claim, and without a measurement nothing in the repository notices.
+
+### What a green gate establishes, and what it does not
+
+The checks above prove **consistency**, not truth. `check_repo.py`, `check_refs.py`,
+`check_routing.py`, `check_commands.py` and `check_budget.py` passing means paths resolve, the
+inventory is complete, documented flags exist, the entry point has not crept, and no target
+identity reached the tracked surface. They say nothing about whether a *claim* is right: a
+reference can cite a heading that exists and still describe a mechanism nobody ran, and a budget
+gate cannot tell a load-bearing file from an adjacent one. Those are the two questions a reader
+actually has, and the only things that answer them are the strength labels and the evidence record.
+
+### Integrating an outside contribution
+
+**Fail closed.** If the contribution's fit with what this repository claims to cover, its
+side effects, or the verification needed to establish either one is **materially unresolved**, do
+not merge it and do not ship it: leave it pending, narrow it, or decline it. Recording the open
+question is a valid outcome; converting it into "none" or "probably fine" is not.
+
+Four things that are not approval, however good they look: **a green CI run, a finished
+implementation, upstream popularity, and the absence of an objection.** They establish that code
+runs and that nobody has complained, which is a different statement from *this belongs here and its
+limits are known*.
+
+Two consequences that decide most of these cases:
+
+- **Labels over volume.** A large contribution whose every claim carries a correct `observed` /
+  `inferred` / `unverified` / `unknown` label is easier to accept than a small one that presents
+  assumptions as findings, because the first one can be checked. Ask what was actually run, and
+  treat "no claim was upgraded to `observed` by reading about it" as a good sign rather than a
+  weakness.
+- **Unresolved is `unknown`, never absent.** A capability that has not been exercised here is
+  `unknown` -- not excluded, not disqualified, and also not merged on the assumption that it
+  probably works. Where a contribution ships a device-bound or toolchain-bound half, the mergeable
+  part is the half that was measured plus an explicitly labelled template for the rest, with the
+  gate that says what would have to exist for the other half to become `observed`.
 
 `tests/benchmark.md` holds the **regression matrix**: dimension -> public target -> the scripts the
 row exercises -> measured result -> strength label. It is the checklist to re-run before trusting

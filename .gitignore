@@ -31,6 +31,13 @@ tools/
 # local input material (the reporting sample and the analysis notes it came with)
 存在问题和例子/
 
+# Local copies of the third-party write-ups an absorption pass reads. They are someone else's
+# text, not content of this repository: what ships is the absorbed method under an `inferred`
+# label, plus the anonymized source line in docs/tool-verification/EXTENSION-absorption-*.md.
+# One `git add -A` is all it would take to commit them, so the rule is explicit here rather than
+# resting on "nobody has added them yet".
+.ref/
+
 # sandbox installs made while testing `npx skills add .` against this repo
 .claude/
 .agents/

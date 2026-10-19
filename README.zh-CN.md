@@ -41,6 +41,8 @@
 
 另外还有一样在结尾、应当被**扣住**的东西：**「done」**有定义（六项）。一份干净的日志不在其中。少于六项全部达成，就只是一个检查点，应当作为检查点汇报，并说明还剩什么。
 
+**这套切分的成本没有被测量过，所以不要把它说大了。** `SKILL.md` 全文加载；某个 reference 则是在症状索引或路由表（`skills/apk-reverse/references/routing.md`）把你送过去时才加载。这通常被描述为「更省上下文」，但这里只测了其中一半：常驻加载的那部分有实测体积，也有门禁在它膨胀时失败（`check_budget.py`）。另一半没有测 —— 一个真实问题会牵出几个 reference，以及一次取一个是否反而比另一种做法更贵。一个要读四个 reference 才能回答的问题，并不显然比一个更长的文件更便宜，而且每个 reference 还要连带为找到它所读的索引行。把切分带来的经济性当作 `unknown`（这里没有任何东西测量过它），把主体预算当作 `observed`。后者才是每个任务都会累积的那一半，也正是被门禁管住的那一半。
+
 如果你是正在读这段的 agent：成本最低的第一条命令是 `python skills/apk-reverse/scripts/doctor.py`。它会告诉你这里存在哪些工具、哪些脚本真的能跑，以及环境里是否已经有什么东西在污染你的测量结果。
 
 ## 它擅长什么
@@ -62,6 +64,7 @@
 - 分辨真实内存 dump 与**抽取壳骨架**，并知道哪条恢复路线适用——包括当 `frida` 本身被拒绝时走 root 侧 dump。这次测量能看见什么、看不见什么，写在 `skills/apk-reverse/references/advanced-unpacking.md`。
 - 当逆向的成本高于调用时，**调用例程而不是逆向它**：在宿主上做模拟执行，或把一个活函数通过 Frida RPC 服务化。
 - 当一个 native 函数被 OLLVM 碾平成状态机时，去读**指令级执行证据**——包括在真实设备上实测到的 Stalker 反咬的两种方式。
+- 当每一个软件级 tracer 都在修改它所观察的东西时，转向**硬件层**：arm64 硬件观察点（零代码改动，但带诚实的 `TracerPid` 账本）、带五道闸门的 ETE/TRBE 差分追踪，以及在拥有匹配闸门的设备把它们打响之前始终标注为未核实的内核注入模板。
 - 认出**用户态 hooking 根本够不到那个检查**的情况（裸 `svc` 系统调用、`init_array` 早期检测）、上下相邻层实际能做什么，以及什么时候继续升级是错误答案。
 - 处理**非 REST 的协议**——无 schema 的 protobuf、gRPC、QUIC/HTTP3——以及无视系统信任库的 native 侧证书固定（pinning）。
 - **直接在手机上工作**：MT Manager 的编辑/重打包/签名流程及其 APK MCP 接口、LSPosed Manager、设备上的数据检查，与 PC 工具链并用，而不是用它来替代 PC 工具链。
@@ -200,6 +203,29 @@ references/               按需加载，每个文件一个主题
                               用户态 hooking 可证明够不到检查：裸 `svc`、init_array 早期
                               检测、每种 root 方案隐藏了什么、带版本闸门的
                               内核路线图，以及什么时候停止升级
+  hardware-watchpoints.md     arm64 上的隐形内存观察点：硬件调试槽位、带着诚实
+                              `TracerPid` 账本的 ptrace 交付路线、8 字节窗口对齐
+                              规则、各个陷阱（槽位按线程生效、信号转发、断点的
+                              步越舞步），以及每次命中前都欠着的那次对照运行
+  ete-diff-tracing.md         硬件执行流追踪（CoreSight ETE/TRBE）加差分法：五道
+                              闸门与它们各自如何静默失败、按线程的 `cs_etm` 采集，
+                              以及把两次只差一个输入位的运行还原成依赖输入的块集合
+                              ——另附从源码读出的两个开源平坦化家族的状态机差异，
+                              以及 xvmp IR 虚拟机的结构
+  hardware-sampling-and-crash.md
+                              无需预知地址的数据流（SPE：每采样带 PC + 数据地址）、
+                              栈不可信时的崩溃取证（BRBE 分支记录 / ETE 尾部），
+                              以及把运行时地址变成符号与静态偏移
+                              （`trace_addr2sym.py`，PIE vaddr/文件偏移规则）
+  native-vm-recovery.md       native VM 还原：VM 存在信号、区分叠在一起的 CFF/VM 双层
+                              dispatcher 的行为判据表、用 relocation 恢复分发表、三重
+                              验证的寄存器锚定、嵌套 VM 的段栈、从 STORE 反向切片加
+                              字节道的操作数恢复，以及干净重实现 VM 的验证闭环 —— 吸收自
+                              两篇公开实战文
+  kernel-event-injection.md   把驱动当伸进目标里的手：从内核布置、无 tracer 关系的
+                              观察点、陷阱处的寄存器改写、按路线（KPM/LKM/eBPF/
+                              Zygisk）的能力对照表，以及把这一层与另外两层叠加的
+                              组合配方
   on-device-tooling.md        直接在手机上工作：MT Manager 的编辑/重打包/签名及其 APK MCP、
                               LSPosed Manager、Termux+frida、设备上数据检查
   java2c-and-jni-sinking.md   Java2C 与 JNI sinking，最容易与抽取壳混淆的两种加固
@@ -322,6 +348,29 @@ scripts/                  参数化、与路径无关
   kernelsu_syscall_mask.py    生成 KernelSU/APatch 系统调用遮蔽脚手架：一个可安装的
                               用户态模块骨架加上 KPM/LKM/eBPF 内核侧模板，每个
                               都带自己的版本闸门和明确的未核实标注
+  hw_watch.py                 arm64 上的隐形内存观察点/执行断点：plan（带 8 字节窗口
+                              规则的 WCR/BCR 编码器）、emit（自包含的设备端 C 助手 ——
+                              可干净编译为静态 aarch64 ELF）、gates、run（构建+推送+
+                              流式采集命中）与 decode（每条命中的模块+偏移）
+  trace_diff.py               差分轨迹归约：把一条轨迹归约为 游程+直方图，或把两条
+                              轨迹对齐出 首次分歧 / 分歧区段 / 各自独有块 —— 与生产者
+                              无关（Stalker 日志或任何每行一个地址的流，含解码后的 cs_etm）
+  ete_capture.py              先过闸门的 CoreSight ETE 采集：五道闸门（内核年代、
+                              coresight sysfs、cs_etm PMU、带 CORESIGHT 的 perf、权限），
+                              perf/OpenCSD 构建配方，以及 `--control` 验证运行必须先
+                              通过的按线程记录封装
+  kernel_instrument_scaffold.py
+                              生成内核侧插桩脚手架：KPM/LKM 观察点+寄存器改写模板与一个
+                              诚实的用户态载体，各带自己的闸门和由 `verify` 强制执行的
+                              `NOT COMPILED AND NOT LOADED` 横幅
+  trace_addr2sym.py           运行时地址 → 符号 + 静态偏移，零依赖 ELF64
+                              （PT_LOAD vaddr/文件偏移换算、.dynsym/.symtab、
+                              strip 后降级）：接受 hw_watch 命中、trace 的 mod+off 键
+                              或裸地址列表；用真实交叉编译的 aarch64 .so 验证过
+  vm_handler_slice.py         把解释器轨迹去虚拟化：dispatcher 识别、按分发入口切成
+                              handler 段、签名聚类，以及通过可选 handler→opcode 映射
+                              得到的 guest opcode 轨迹 —— 按开源 xvmp IR 虚拟机校准，
+                              并带 VM 嵌套调用的循环诊断
   rasc_build.py               构建并验证 rasc，即 ASC 索引器的 Rust 重实现：
                               --check 检查已有什么、--build 克隆并 cargo、--verify 用
                               droidasc 校验一个 APK，并在任何类集合差异上失败
@@ -370,11 +419,14 @@ export APKREV_TOOLS=<dir>:<dir>                  # POSIX
 
 脚本本身是纯 `python3`，并且意图在 Windows、macOS 和 Linux 上行为一致；凡有片段仅限 POSIX，都会标注出来。这里没有任何东西假定你用的是 Unix shell。
 
+**实测只在 Windows 上做过。** 每一次门禁运行、每一个测试结果、以及证据记录里的每一个数字，都来自同一台主机（Windows 10.0.26100、PowerShell 7、CPython 3.14）。跨平台行为是设计意图，不是观测结果：在别处跑通之前，把另一个平台当作 `unverified`，并预期差异出在几个老地方 —— 路径分隔符、`APKREV_TOOLS` 里的 `os.pathsep`、控制台编码，以及 ADB 辅助脚本里的 shell 引号转义。如果你在 macOS 或 Linux 上跑门禁并通过了，那是一个值得记在这段旁边的 `observed` 结果。
+
 | 工具 | 用途 |
 |---|---|
 | Python 3.9+ | 所有脚本 |
 | **`droidasc`**（ASC）（**可选，但强烈建议——先装这个**） | 整 APK 交叉引用索引：`findrefs` / `listclass` / `getclass` / `getmanifest`。一句 `pip install droidasc`，无 JVM、无 SDK、无需建索引。把「这几千个类里哪一个提到过这个字符串」变成亚秒级查询，也是找到名字被 R8 混淆过的类的唯一路线。**这是 agent 在做任何完整反编译之前应当伸手去拿的工具** —— 见 `skills/apk-reverse/references/toolchain.md` §droidasc (ASC) —— 一次查询就能问一个 APK「谁引用了这个？」 |
 | `ddc`（可选，但强烈建议） | 单文件 dex→Java 反编译器，带查询子命令（`info`、`findrefs`、`strings --with-locations`、按类反编译）。无 JVM。**读** ASC 所**定位**的东西；也能可靠地报告包身份 —— 见 `skills/apk-reverse/references/toolchain.md` §ddc —— 带查询子命令的 dex 转 Java（值得采用） |
+| **`dexsql`**（可选，但强烈建议） | 单文件，**用 SQL 查询整个 dex**，外加 APK manifest 与 `resources.arsc`，并内置 MCP server。它的类定义集合在四个归档上与 `rasc`/`droidasc`/`ddc` 完全一致，而且能回答另两个表达不了的问题：某被调方法的调用者、字段访问、数值常量、调试行表、注解、hiddenapi 标志。当问题是**连接或聚合**时用它 —— 见 `skills/apk-reverse/references/dexsql-sql-query-layer.md` |
 | `baksmali` / `smali` + `dexlib2` jars | 反汇编、汇编、外科式打补丁 |
 | JDK（`javac`、`java`） | 构建/运行 dexlib2 补丁器；同时提供 `keytool`/`jarsigner` |
 | Android SDK build-tools（`aapt`、`zipalign`、`apksigner`） | manifest 信息、对齐、签名。**`apksigner` 才是该用的签名器** —— `jarsigner` 会重写归档并破坏 Android R+ 所要求的对齐 |
@@ -402,7 +454,7 @@ export APKREV_TOOLS=<dir>:<dir>                  # POSIX
 
 为处理你自己的应用、你被授权分析的样本，以及 CTF/竞赛沙箱而构建。它不含任何内置的第三方二进制，也不含任何目标特定数据。
 
-它覆盖什么、刻意不覆盖什么，写在 `SKILL.md` 顶部 **Coverage** 一节。简版：仅 Android（不含 iOS），并且在经过真实打磨的层上深入 —— dex 补丁、重打包、壳与自定义加载器、native 篡改响应，以及 Flutter/Dart AOT。一次扩展迭代加入了第二梯队的已记录路线：重打包受阻时的**模块侧交付**、**抽取壳恢复**及其 VMP 边界、用于「调用而不是阅读」的**模拟执行与实时 RPC**、针对 OLLVM 的**指令级追踪**、REST 之外的**协议逆向**、当用户态 hooking 可证明够不到时用的**内核路线**图，以及**设备上工具**。随后一次**基准迭代**把公开目标放到这些路线之下（`tests/benchmark.md`）：它加入了 **Java2C 判别**（那种会让 agent 去追一个从不存在的解密 DEX 的误诊）、**split APK / App Bundle 处理**、**无 schema 的 protobuf 解码**、一个 **Dex-VMP 差分**测试台，以及**带版本闸门的内核模块模板** —— 并纠正了先前两条与自身测量结果不一致的说法。Unity/IL2CPP 逻辑恢复、React Native/Hermes 字节码内部，以及击败服务端权威**不**在覆盖范围内，skill 的写法就是明说这一点并停下，而不是把最近的一条已记录流程套用到一个它并非为之编写的目标上。
+它覆盖什么、刻意不覆盖什么，写在 `SKILL.md` 顶部 **Coverage** 一节。简版：仅 Android（不含 iOS），并且在经过真实打磨的层上深入 —— dex 补丁、重打包、壳与自定义加载器、native 篡改响应，以及 Flutter/Dart AOT。一次扩展迭代加入了第二梯队的已记录路线：重打包受阻时的**模块侧交付**、**抽取壳恢复**及其 VMP 边界、用于「调用而不是阅读」的**模拟执行与实时 RPC**、针对 OLLVM 的**指令级追踪**、REST 之外的**协议逆向**、当用户态 hooking 可证明够不到时用的**内核路线**图，以及**设备上工具**。随后一次**基准迭代**把公开目标放到这些路线之下（`tests/benchmark.md`）：它加入了 **Java2C 判别**（那种会让 agent 去追一个从不存在的解密 DEX 的误诊）、**split APK / App Bundle 处理**、**无 schema 的 protobuf 解码**、一个 **Dex-VMP 差分**测试台，以及**带版本闸门的内核模块模板** —— 并纠正了先前两条与自身测量结果不一致的说法。随后一次**硬件迭代**加入了软件工具之下的那一层：带诚实 `TracerPid` 账本的**硬件观察点**、带五道闸门的 **ETE/TRBE 差分追踪**，以及**内核侧注入模板** —— 凡是宿主可验证的部分都实测过，凡是设备绑定的部分在闸门打开前一律标注 `unverified`。Unity/IL2CPP 逻辑恢复、React Native/Hermes 字节码内部，以及击败服务端权威**不**在覆盖范围内，skill 的写法就是明说这一点并停下，而不是把最近的一条已记录流程套用到一个它并非为之编写的目标上。
 
 Coverage 一节完整陈述、同时也应当放在这里的四条限定：
 
@@ -412,6 +464,8 @@ Coverage 一节完整陈述、同时也应当放在这里的四条限定：
 - **基准迭代按行记录，并带有该行自己的强度。** `tests/benchmark.md` 列出每个公开目标、该行演练的脚本、实际发生了什么（包括失败的行和没人跑的行），以及证据有多强。标为 `unverified` 的行是在陈述本仓库证据的状况，不是在陈述机制本身。
 
 ## 仓库维护
+
+**要改动这里的东西？先读 [CONTRIBUTING.md](CONTRIBUTING.md)。** 它列出各道门禁、一次全绿意味着什么又不意味着什么、改动必须同步的规则（新增一个 reference 必须在清单里被点名；重命名一个标题会让所有指向它的章节引用断掉），以及修改门禁脚本自身时要留意的两类失效模式。
 
 根目录下住着四个工具，它们不属于已安装的 skill：
 
@@ -436,6 +490,21 @@ build_scripts.py   审计机器特定残留物（绝对路径、凭据）
 ```
 
 一致性有一种天然的反向压力 —— 一条断掉的路径会大声失败，然后有人修它。膨胀没有，这正是第三个工具存在的原因：每次迭代都会加一个 reference、一行索引和一条覆盖主张，而没有测量的话，仓库里没有任何东西会注意到。
+
+### 全绿的门禁证明了什么，又不证明什么
+
+上面的检查证明的是**一致性**，不是真相。`check_repo.py`、`check_refs.py`、`check_routing.py`、`check_commands.py`、`check_budget.py` 全绿，意味着路径可解析、清单完整、文档里的 flag 真实存在、入口点没有膨胀、受跟踪表面上没有目标身份。它们对**一个主张是否正确**什么也没说：一个引用可以指向真实存在的标题，却描述一个没人跑过的机制；预算门禁也分不清一个文件是承重还是只是相邻。而这两件事恰恰是读者真正要问的，能回答它们的只有强度标注和证据记录。
+
+### 接纳外部贡献
+
+**失败关闭。** 如果一项贡献与仓库宣称的覆盖范围的契合度、它的副作用、或确立这两者所需的验证**仍有实质未决**，就不要合并、不要发布：让它挂起、缩小它，或者拒绝它。把未决问题记录下来是有效的结果；把它变成「无」或「大概没问题」则不是。
+
+有四样东西不是批准，无论它们看起来多好：**全绿的 CI、完成的实现、上游的流行度、以及没有人提出异议。** 它们证明的是代码能跑、还没人抱怨，这与「这属于这里、而且它的边界已知」是两回事。
+
+两个决定多数此类判断的推论：
+
+- **标注优先于体量。** 一份每一项主张都带着正确 `observed` / `inferred` / `unverified` / `unknown` 标注的大改动，比一份把假设当成结论的小改动更容易被接受，因为前者可以被核对。要问的是实际跑了什么；把「没有哪个主张是靠读资料升级成 `observed` 的」看作好迹象，而不是弱点。
+- **未解决就是 `unknown`，绝不是不存在。** 一个在这里没有被演练过的能力是 `unknown`：不是被排除，不是被取消资格，也不是因为「大概能行」就合并。当一项贡献含有一半绑定设备或工具链的内容，可合并的是**被测量过的那一半**，加上为其余部分明确标注的模板，以及说明「另一半要变成 `observed` 需要什么存在」的那道门。
 
 `tests/benchmark.md` 保存**回归矩阵**：维度 -> 公开目标 -> 该行演练的脚本 -> 实测结果 -> 强度标注。它是你在信任 `docs/tool-verification/` 下任何主张之前要重跑的检查表。样本会下载进 `tools/_work/` 且从不提交，因此每一行都点名它的公开来源并记录它所针对的哈希。
 

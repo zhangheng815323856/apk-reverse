@@ -32,6 +32,8 @@ what is *exempt*, in code, that can be read and argued with.
 - **inferred** — follows from an observed fact or from documented mechanism; the step itself
   was not executed.
 - **unverified** — assumed, or reported elsewhere, and not reproduced in this repository.
+- **unknown** — nothing here covers it: not probed, or probed without the coverage to answer. Missing
+  evidence, not a negative result.
 
 Claim strength in this file means *how well the statement about desensitization was measured*,
 not how confident the writing sounds.

@@ -8,7 +8,7 @@ metadata:
   capability_registry: skills/apk-reverse/scripts/capabilities.py
   evidence_summary: skills/apk-reverse/references/evidence-summary.md
   last_reconstruction_pass: "2026-09-22"
-  strength_labels: "observed | inferred | unverified"
+  strength_labels: "observed | inferred | unverified | unknown"
 ---
 
 # APK Reverse Engineering & Patching
@@ -81,7 +81,7 @@ invisible from the inside, because the weak route still produces output.
 
 | Obligation | Do this | Cost of ignoring it |
 |---|---|---|
-| **Orient with an indexer, not an export** | Build the ability to *ask the artifact questions* before reading code: `droidasc findrefs` / `ddc findrefs` (string/type/method → every reference site, sub-second). A decompile reads a class you have **already located** — it is not how you locate it. `jadx` is a readable viewer of last resort, never the source of truth and never the entry point of a recon | hours of `grep` per question asked, over an export you paid for first |
+| **Orient with an indexer, not an export** | Build the ability to *ask the artifact questions* before reading code: `droidasc findrefs` / `ddc findrefs` (string/type/method → every reference site, sub-second), and `dexsql query` when the question is a **join or an aggregate** — callers of a callee, methods holding a numeric constant, the debug line table — rather than a class list. A decompile reads a class you have **already located** — it is not how you locate it. `jadx` is a readable viewer of last resort, never the source of truth and never the entry point of a recon | hours of `grep` per question asked, over an export you paid for first |
 | **Install the missing tool; it is part of the task** | A missing arm64 decompiler is the next step, not a constraint to route around. Ask a human only when installation is genuinely impossible | hours re-derived by hand for output a decompiler gives in minutes |
 | **Name the gap before spending against it** | State the capability the blocker requires and whether this machine has it, **out loud**. This is a G2 item | designing around a tool that installs in ten minutes |
 | **Reach for a shipped script before writing one** | Parsing, hashing, alignment and hot-plug probes are already written; a bespoke script in place of `scripts/dex_find_insn.py` is how offsets get **guessed instead of computed** | a wrong offset that decodes cleanly and behaves wrongly |
@@ -102,13 +102,31 @@ that almost fits is more dangerous than no method at all, because it arrives wit
 vocabulary and a set of reassuring numbers.
 
 **How strong these claims are — this is load-bearing, not cosmetic.** Every claim in this skill carries
-one of three labels, and you must label your own results the same way:
+one of four labels, and you must label your own results the same way:
 
 | Label | Means | May it justify a decision? |
 |---|---|---|
 | `observed` | a command was run and its output exists | yes |
 | `inferred` | follows from an observation, but the step is reasoned | provisionally |
 | `unverified` | assumed, or reported elsewhere and never reproduced here | only as something to test |
+| `unknown` | nothing here covers it: no probe ran, or the probe's coverage did not reach it | no — and never as absence |
+
+**A negative result has three shapes, and folding them together is the failure this section exists
+for.** `unverified` means somebody asserted something and nobody here paid for the counters; `unknown`
+means no evidence was gathered at all. But a probe that *did* run and came back empty means one of two
+different things, and only one of them is a finding:
+
+- **absent** — the probe's coverage reached the question and the thing genuinely is not there;
+- **present but unreadable** — the thing is there and *this route* cannot read it: an encrypted payload
+  inside a shell, a library the running ABI never loads, a check that fires before your hooks exist, a
+  field that exists under a type your parser rejects.
+
+The second is the dangerous one, because it produces byte-identical output to the first and it is the
+**normal** case on the hardened targets this skill is aimed at. A packed APK returning four classes is
+not an APK with four classes. So before "not present" goes into the record, name the probe that covered
+the question and run a control that must hit. If the control is silent too, the honest statement is
+`unknown` about **your probe**, not `absent` about the target — and the next move is a different probe,
+not a stronger conclusion.
 
 **The inventory that replaces a guess:** the per-route list of what is covered and what is not — by
 verified mechanism versus by documented-but-mostly-inferred route — is in
@@ -208,6 +226,14 @@ unread in this repository.
 | You only need to **call** the target's own routine (sign, token, encrypt) rather than change the app | `references/emulation-and-rpc.md` — emulate it, or service-ify the live function over Frida RPC |
 | A native function is a many-thousand-line `switch` state machine, or the decompiler's output is meaningless | `references/native-dbi-and-deobfuscation.md` — OLLVM shapes, a Stalker trace, and how far a trace actually gets you |
 | `Stalker.follow` installs but no events arrive, or following a hot libc export crashes the process | `references/native-dbi-and-deobfuscation.md` §6 failure modes — this repository measured both |
+| You must observe or alter the target with **no code change, no injected thread, and `TracerPid` = 0** — page checksums catch every hook | `hardware-watchpoints.md` — hardware debug slots via ptrace with its honest stealth ledger, then `kernel-event-injection.md` for the kernel-armed route that needs no tracer at all |
+| A crash's backtrace cannot be trusted — frames in wrong modules or anonymous regions, flattened/virtualized code, or a smashed stack | `hardware-sampling-and-crash.md` — BRBE branch records / ETE tail as the real control flow, then `scripts/trace_addr2sym.py` to symbolize every PC |
+| You hold a list of **runtime addresses** (hits, trace PCs, divergence points) and need symbols / static offsets, not hex | `hardware-sampling-and-crash.md` §3 The crash loop — `scripts/trace_addr2sym.py` with its vaddr/file-offset rules |
+| A trace of a virtualized function is just an **interpreter loop repeating** and reads like noise | `scripts/vm_handler_slice.py` — slice at dispatcher entries into handler segments, cluster signatures, recover the guest-opcode trajectory (xvmp-calibrated) |
+| You cannot tell whether the `table[index]; br` you are staring at is the **VM dispatcher or the OLLVM dispatcher** — or the VM has no readable static shape at all | `references/native-vm-recovery.md` — the behavioural table that separates the two stacked layers, the VM-existence signals, register anchoring with triple verification, nested-VM segment stacks, and STORE-backward operand slicing |
+| The trace segments themselves look corrupted — handler heads missing, tails glued into wrong segments | `references/native-vm-recovery.md` §7 Nested VMs — a flat segment accumulator discards the outer level; nested slices need a segment stack (`vm_handler_slice.py` flags the symptom) |
+| You need to know **where two runs of the same operation diverge** (password/license/key), not just what executed | `ete-diff-tracing.md` — ETE hardware-trace gates plus the differential method; `scripts/trace_diff.py` also diffs Stalker logs |
+| A generated KPM/LKM template is in front of you, or the kernel route feels like the plan | `kernel-event-injection.md` — the primitive map, the composition recipes, and the gates every kernel-side file must pass before it is a weapon |
 | The traffic is protobuf/gRPC/QUIC, or a proxy sees TLS but requests still fail on a Flutter app | `references/protocol-reverse.md` — schema-less protobuf, frame capture, and native-side pinning |
 | Userspace hooks land and the app still dies: the check reads `/proc/self/status` through a raw `svc`, or runs before `JNI_OnLoad` | `references/kernel-and-environment-hardening.md` — what the next layer up and down can actually do, and when to stop |
 | You must edit, repack, sign or inspect the APK **from the phone itself** | `references/on-device-tooling.md`, `scripts/mt_mcp_probe.py` |
@@ -382,7 +408,7 @@ These are moments where continuing to push forward is the wrong move. Each has c
 | **Neutralise a native terminate path by returning, never by making it not return** | a spin stub freezes the caller **holding its lock**; unrelated threads wedge and the symptom (hang, external kill, restart loop) looks nothing like the cause, with no crash record | return a benign value, prefer success (`0`) over failure (`-1`), never touch `pthread_exit`/`exit`/`abort`/`snprintf`/`closedir`. `native-tamper-and-suicide.md` |
 | **Look before you conclude, and look while you wait** | a screen that is actually looked at answers in one step what coordinate-guessing cannot answer in five | capture **and inspect**; byte-identical samples mean nothing will change. `scripts/snap.py`, `environment.md` §look at the screen |
 | **Bound every command, and calibrate the bound from a measurement** | an unbounded call turns a stall into "still working", which is indistinguishable from progress | time the operation once, record it, derive the deadline from it. `long-task-discipline.md` §Bound every wait |
-| **Every claim carries a label — `observed`, `inferred` or `unverified`** | "probably", "should be" and "in theory" are not findings, and an unlabelled guess propagates as a fact | `observed` requires a command **and its output**; nothing else may be written as established |
+| **Every claim carries a label — `observed`, `inferred`, `unverified` or `unknown`** | "probably", "should be" and "in theory" are not findings, and an unlabelled guess propagates as a fact | `observed` requires a command **and its output**; nothing else may be written as established. A probe that did not reach the question is `unknown`, never `absent` |
 | **"Done" means the user-visible outcome** | a blocking dialog still on screen means the task is not done, however clean the log is | §What "done" means, all six items; absence of a log line is never evidence of success |
 | **Never discard a route on compound evidence** | if a failure followed two simultaneous changes, the attribution is a hypothesis — mis-attributed failures have removed viable routes for hours | re-run the abandonment single-variable before writing it down |
 | **Prove the device changed before measuring anything** | install success describes the *request*, not the app on disk | hash the on-device artifact against your build; otherwise every later observation describes the previous build |

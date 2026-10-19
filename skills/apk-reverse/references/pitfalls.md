@@ -1287,3 +1287,153 @@ as P25/P26/P33, and it removes viable patch sites for free.
 - **Cross-check one known instruction** against a disassembler before trusting offsets you derived.
 - Build the width table from the format groups in `references/byte-level-patching.md` rather than
   from memory, and keep the width logic in one place so a fix applies everywhere.
+
+## P43. The hardware watchpoint fires, and the argument you wanted is not in x0-x7
+
+**Symptom**
+A breakpoint/watchpoint lands exactly on the function you wanted — the write path, the crypto
+entry — but the register dump (`x0..x7` on arm64) does not contain the buffer pointer or the
+length you came for. The hit is real; the data is not there.
+
+**Root cause**
+The target is a **Go binary using the stack-based ABI** (pre-1.17/1.18 Go builds, and
+hand-written assembly `ABI0` functions in any Go build — gomobile included): the stack-based
+Go ABI passes arguments on the stack, not in the AArch64 argument registers. The plaintext
+`ptr/len/cap` you are hunting sits in the caller's frame at `[sp + n]` — and a tracer that only
+saves `x0-x7`, or a kernel-side breakpoint handler that only dumps register-pointed memory,
+structurally cannot see it. This is not "wrong instruction, try another one": at the call
+boundary the values may transit through a register only momentarily, or be spilled by `STR`
+right before the call.
+
+**Why it is hard to see**
+The hit *proves* you are on the right function, so the instinct is to walk neighbouring
+instructions looking for "the right one". On a stack ABI there is no such instruction — the
+data is in the frame, and every register you dump will keep being the wrong register.
+
+**The rule**
+When the module is Go (`go.Seq`/`gomobile` symbols give it away), **establish the hit
+function's ABI first** — it is a per-function property, not a per-binary one. Modern Go
+compiles to the register ABI (`ABIInternal`, Go 1.17+ on amd64, 1.18+ on arm64 — the arm64
+internal ABI passes integer/pointer arguments in `x0..` and may reach up to `x15`): those
+arguments are in the argument registers, so dump those at the stop, and the stack holds at
+most spilled copies. A **stack-ABI** function — a pre-register-ABI build, or a hand-written
+assembly (`ABI0`) function in any build — keeps them in the caller's frame: the hit already
+carries `sp`, so pull `[sp .. sp+0x100]` from `/proc/<pid>/mem` at the stop. When unsure,
+disassemble the entry: a prologue consuming `x0`/`x1` is register ABI; argument loads from
+`[sp+…]` offsets are stack. `scripts/hw_watch.py` prints `sp` on every `HIT` line for exactly
+this reason — a tracer that cannot read the stack cannot trace a stack-ABI Go function.
+And prefer a **layer boundary** where the values
+*are* in registers: a JNI entry point follows the AArch64 PCS, so a `RegisterNative`-registered
+Java method receives its strings in `x2..x5` — one layer up from the Go internals, and the
+plaintext is already marshalled. *(Absorbed from a public write-up, 2026-09.)*
+
+## P44. One observer's crash silently disarms every observer installed after it
+
+**Symptom**
+A multi-probe observer script (hook several functions, log, never modify) runs clean, the target
+dies at t≈2s as expected — and not one backtrace is captured. Later, the same script reordered
+captures the suicide site on the first try.
+
+**Root cause**
+The first probe used an API the runtime version had removed (`Module.findExportByName` in Frida
+17 — gone, replaced by `Module.getGlobalExportByName`), which threw at install time. The
+suicide observer was *later in the same script*, so it never installed. The target's death and
+the observer's absence looked identical from the outside: "died, no evidence".
+
+**Why it is hard to see**
+The script reports what it installed — and it installed nothing past the crash, silently. A
+missing observer produces the same empty log as "the check runs before anything we could hook".
+
+**The rule**
+Every observer installs inside its own `try/catch`, reports `INSTALLED`/`FAILED` per hook, and
+the most important observer goes **first**. An empty log after a death is a probe-plumbing
+result until the install report says otherwise. *(Absorbed from a public write-up, 2026-09.)*
+
+## P45. Scrubbing `/proc/self/maps` lines breaks the app's own loader
+
+**Symptom**
+The detection is identified — it reads `/proc/self/maps` and `strcmp`s each line against a
+known-agent signature. You hook `read`/`fgets` and strip the offending lines. The app now dies
+*earlier*, in the linker or the packer's loader, in places that never failed before.
+
+**Root cause**
+The hardened loader itself **legitimately reads `/proc/self/maps`** to find its own segments and
+perform relocations — the same API, the same lines, a different consumer. A blanket rewrite
+damages both readers, and the innocent one dies first.
+
+**Why it is hard to see**
+Both readers go through libc, so the hook cannot tell them apart by call site without more
+context — and the new crash points at *your* change, in a component the detection analysis never
+mentioned.
+
+**The rule**
+Never spoof a shared file's content from a shared call path. The alternatives, in cost order:
+change what the *signature* matches (rename/remap the agent so the line never existed — the
+frida-agent `memfd:` mapping is exactly such a line), or filter by **reader** (only rewrite for
+the detecting thread), or leave the file alone and defeat the *decision* the check makes
+(`references/kernel-event-injection.md`). And before blaming the target for a death that
+followed your hook, rerun the same probe **observer-only** — if the death persists with zero
+modifications, the check is real; if it vanishes, P45 or its cousins is the cause. *(Absorbed
+from a public write-up, 2026-09.)*
+
+## P46. Hooking the TLS library shows nothing, because the login was never in Java
+
+**Symptom**
+An SSL-key-hooking capture tool (eCapture-class) sees no traffic at all for the feature you
+care about. You widen the hooks, re-key, restart — still nothing.
+
+**Root cause**
+Three stacked causes, each pointing at the next layer: (1) the feature's networking runs in
+**statically linked Go `crypto/tls`**, not the system SSL library an eCapture-style tool hooks;
+(2) the business logic is not in the dex at all — the unpacked dex contains only the packer's
+loader classes, and the real code is an encrypted JS bundle decrypted at runtime; (3) the
+decisive observation point was neither TLS nor Java but a **`RegisterNative`-registered JNI
+method** (`resourceApi(url, method, body, header, flag)`) where every request's plaintext
+passes in ordinary JNI strings.
+
+**Why it is hard to see**
+Each dead end looks like a tooling failure rather than a layer identification: "eCapture is
+broken", "the hook is wrong". They were working — at the wrong layer.
+
+**The rule**
+A capture tool that hooks *library X* answers only traffic through library X; when it returns
+nothing, identify the layer before widening hooks: check which native library owns the feature
+(a `RegisterNative` listener over a cold start lists every JNI method with its offset — one run,
+full inventory, and the offsets are file offsets you can jump to), check the unpacked dex for
+business classes before assuming the logic is Java, and prefer the **highest boundary where the
+data is still plaintext** — a JNI boundary beats a TLS interior every time. Each dead road names
+the next layer: TLS-blind says "own crypto", dex-empty says "JS/native bundle", and the
+RegisterNative inventory turns "somewhere in libfoo" into a function address. *(Absorbed from a
+public write-up, 2026-09.)*
+
+## P47. Two tools disagree about the same artifact, and the disagreement is your parser
+
+**Symptom**
+Two indexers report different class counts for one APK: one says 647, the other says 38. Both exit
+cleanly, both print plausible output, and the smaller number has an innocent explanation ready to
+hand — a hardened target really does expose few classes — so the discrepancy is filed as "the tools
+disagree on packed input" and the investigation moves on with a wrong number in the record.
+
+**Root cause**
+One extraction rule was reused across outputs that do not share a format. Two defects in one pass:
+an unescaped metacharacter in the pattern (`$` inside a class descriptor is an end-of-line anchor, so
+every name containing `$` or a non-ASCII character was dropped), and two different representations
+compared as if they were one (a tool printing dotted Java names against a tool printing DEX
+descriptors, so one side parsed to nothing). Neither is a property of the tools. The measurement was
+reporting the parser's blind spot and attributing it to the artifact.
+
+**Why it is hard to see**
+Cross-checking tools is what this skill tells you to do, and the comfortable failure is the one that
+*confirms* something you already expect: a packed APK returning few classes is true, so the wrong
+number passes the one sanity check you were most likely to run. Both sides also produced output of
+the right *shape*, which reads as agreement.
+
+**The rule**
+**A count disagreement between two tools is a claim about your parser until you have proved
+otherwise.** Parse each tool's own output with a parser written for that format, normalise both to
+one representation, and only then compare — and let the comparison carry its own control: a query
+whose answer you already know, pushed through the same path, before any "the tools disagree" verdict
+is recorded. Two traps recur: regex metacharacters that are legal characters in the data (`$` in
+descriptors, `[` in array types, `.` in package names), and representation mismatches that hide
+behind a matching line count. The encoding cousins of this failure are in `framework-runtimes.md`
+and the line-ending trap in `patch-audit.md`.

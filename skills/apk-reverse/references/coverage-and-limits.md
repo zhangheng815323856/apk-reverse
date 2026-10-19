@@ -18,10 +18,24 @@ what was and was not exercised. Load it when a claim's strength decides whether 
 - **inferred** — follows from documented mechanism or from a neighbouring measurement; the step
   itself was not executed.
 - **unverified** — assumed, or reported by someone else, and not reproduced in this repository.
+- **unknown** — nothing here covers it: the question was never probed, or the probe's coverage did
+  not reach it. This is missing coverage, not a negative result.
 
 Reserve `observed` strictly (`references/long-task-discipline.md` does). "I reasoned it out" is
 `inferred`. The distinction is load-bearing, not cosmetic: an `inferred` route may still be right,
 but nobody here has paid for the counters yet.
+
+**Read a negative result as `unknown` unless the probe's coverage is established, and check for the
+third state first.** An empty result has three possible causes and only one of them is a finding:
+**absent** (coverage reached the question, nothing is there), **present but unreadable** (the thing is
+there, and this route cannot read it), or **`unknown`** (nothing covered it). The second is the one
+that costs hours, because it is indistinguishable from the first and it is the *normal* case on
+hardened input: "the string was not in the dex", "the hook never fired", "no request reached the
+endpoint" each have a failure mode that produces the same empty output as a true negative — a query
+whose argument never arrived intact, a hook installed after the check that matters, a request refused
+before it was built. A small class count on a packed target is the payload being unreadable, not
+absent. Name the probe's coverage, run a control that must hit, and write `unknown` about the probe
+rather than `absent` about the target.
 
 ## Covered, by verified mechanisms — the evidence
 
@@ -32,6 +46,15 @@ but nobody here has paid for the counters yet.
 - **dex-level surgical patching**: equal-length byte edits and dexlib2 method rewrites, plus the
   header, verifier and alignment rules that decide whether the build loads (`dex-patching.md`,
   `byte-level-patching.md`, `patch-audit.md`).
+- **Whole-APK dex indexing and query — locating a class or a reference before reading code.** Three
+  indexers ship as documented routes (`rasc`, `droidasc`, `dexsql`) and their class-definition sets
+  were compared against each other and against `ddc` on four archives (1,396 / 647 / 4 / 30,768
+  classes): **identical on all four, zero differences in either direction**, and a string
+  cross-reference query agreed site for site. `dexsql` additionally exposes the dex as SQL — callers,
+  field accesses, numeric constants, debug lines, annotations, hiddenapi flags — plus the APK
+  resources and an MCP server (`rasc-and-droidsaw.md`, `dexsql-sql-query-layer.md`). **Boundary:** on a
+  hardened target all four return the same small class count because the payload is encrypted inside a
+  shell; no query language reaches that, and the unpacking routes own it.
 - **Repacking, signing, installing**, and the install refusals that look like a broken build
   (`repack-and-sign.md`).
 - **Packers, custom loaders and code virtualization**: identifying them, measuring the validation
@@ -95,6 +118,29 @@ its own strength note at the top.
 - **What to do when userspace hooking provably cannot reach the check** — raw `svc` syscalls,
   `init_array`-early detection, and the kernel-route map with its version gate
   (`kernel-and-environment-hardening.md`).
+- **Hardware watchpoints (ptrace route)** — observing who reads/writes one location with zero
+  code modification, its honest `TracerPid` ledger, and the control run every hit is owed.
+  Encoders and the on-device helper's build are host-measured; arming on a device is not
+  (`hardware-watchpoints.md`, `scripts/hw_watch.py`).
+- **ETE differential tracing** — the five gates and how each fails silently, per-thread `cs_etm`
+  capture, and the one-bit-different pair design that turns two traces into the input-dependent
+  block set. The reducer/differ is host-measured; the producer side needs a coresight device this
+  repository never had (`ete-diff-tracing.md`, `scripts/ete_capture.py`, `scripts/trace_diff.py`).
+- **SPE/BRBE sampling and crash forensics** — data flow without a known address, branch records
+  when a crash's stack cannot be trusted, and the address→symbol loop. The ELF symbolizer is
+  host-verified; no SPE sample or BRBE record was ever captured here
+  (`hardware-sampling-and-crash.md`, `scripts/trace_addr2sym.py`).
+- **Interpreter-trace de-virtualization** — dispatcher slicing, handler-signature clustering and
+  the guest-opcode trajectory, host-tested on synthetic interpreter traces and calibrated
+  against a public IR virtualizer's source; no hardened binary was ever traced
+  (`scripts/vm_handler_slice.py`).
+- **Native VM recovery procedure** — the full method (dispatcher-layer separation, register
+  anchoring with triple verification, nested segment stacks, STORE-backward slicing, clean-re-VM
+  validation) absorbed from two public write-ups; every step `inferred`, none run here
+  (`native-vm-recovery.md`).
+- **Kernel-side event injection** — invisible watchpoints and register rewrites from a driver, as
+  generated templates with their gates; nothing kernel-side was ever compiled or loaded here
+  (`kernel-event-injection.md`, `scripts/kernel_instrument_scaffold.py`).
 - **Working from the phone itself** — MT Manager, its APK MCP surface, LSPosed Manager, on-device
   data inspection (`on-device-tooling.md`, `scripts/mt_mcp_probe.py`).
 

@@ -18,9 +18,10 @@ are nothing of the kind:
 `scripts/repack.py` handles both routes and **refuses to guess**: it inventories the set, decides
 which route is legal from what the members actually carry, prints the reason, and only then acts.
 
-**Strength labels** (same three this repository uses everywhere): **observed** = reproduced with an
+**Strength labels** (the same set this repository uses everywhere): **observed** = reproduced with an
 exact command and output; **inferred** = follows from observed facts, step not executed;
-**unverified** = reported or assumed, not independently confirmed. The measurements behind this
+**unverified** = reported or assumed, not independently confirmed; **unknown** = not covered here at
+all, which is missing evidence rather than a negative result. The measurements behind this
 file are recorded in `references/evidence-summary.md` §The capability matrix.
 
 
